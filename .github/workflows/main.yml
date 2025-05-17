@@ -1,0 +1,131 @@
+name: Deploy on EC2
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  deploy:
+    name: Build and Deploy to Home Directory
+    runs-on: self-hosted
+
+    env:
+      # Define deployment paths in user's home directory
+      MAIN_APP_DEPLOY_PATH: "${HOME}/potree_app_main" # Expands to /home/your_runner_user/potree_app_main
+      INTERNAL_SERVER_DEPLOY_PATH: "${HOME}/potree_app_internal_server"
+
+      # GitHub Secrets for .env file
+      GULP_PROXY_TO_INTERNAL_HEADER_VALUE_SECRET: ${{ secrets.SERVER_SIDE_HEADER }}
+
+      
+      NODE_ENV: production
+
+    steps:
+      - name: Checkout repository to a temporary location
+        uses: actions/checkout@v4
+        with:
+          path: temp_checkout # Checkout to a subdirectory in the workspace
+
+      - name: Prepare Main App Deployment Directory
+        run: |
+          echo "Preparing Main App directory: ${{ env.MAIN_APP_DEPLOY_PATH }}"
+          if [ -d "${{ env.MAIN_APP_DEPLOY_PATH }}" ]; then
+            echo "Removing old Main App deployment..."
+            rm -rf "${{ env.MAIN_APP_DEPLOY_PATH }}"
+          fi
+          mkdir -p "${{ env.MAIN_APP_DEPLOY_PATH }}"
+          echo "Copying Main App files..."
+          # Copy all files except InternalServer directory
+          rsync -av --exclude 'InternalServer/' ${{ github.workspace }}/temp_checkout/ "${{ env.MAIN_APP_DEPLOY_PATH }}/"
+
+      - name: Prepare Internal Server Deployment Directory
+        run: |
+          cp -R ${{ github.workspace }}/temp_checkout/InternalServer/* "${{ env.INTERNAL_SERVER_DEPLOY_PATH }}/"
+          
+      - name: Create .env file in Main App Directory
+        run: |
+          echo "Creating .env file in ${{ env.MAIN_APP_DEPLOY_PATH }}"
+          ENV_FILE_PATH="${{ env.MAIN_APP_DEPLOY_PATH }}/.env"
+          echo "SERVER_SIDE_HEADER=${{ env.SERVER_SIDE_HEADER }}" > "$ENV_FILE_PATH"
+          cat "$ENV_FILE_PATH"
+      
+      - name: Copy .env file to Internal Server Directory
+        run: |
+          echo "Copying .env file to ${{ env.INTERNAL_SERVER_DEPLOY_PATH }}"
+          cp "${{ env.MAIN_APP_DEPLOY_PATH }}/.env" "${{ env.INTERNAL_SERVER_DEPLOY_PATH }}/.env"
+          cat "${{ env.INTERNAL_SERVER_DEPLOY_PATH }}/.env"
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      # --- Stop any previously running servers ---
+      - name: Stop Previous Gulp Server (Port 1234)
+        run: |
+          echo "Attempting to stop process on port 1234..."
+          PID_TO_KILL=$(sudo lsof -t -i:1234)
+          if [ -n "$PID_TO_KILL" ]; then echo "Killing $PID_TO_KILL"; sudo kill -9 $PID_TO_KILL; else echo "No process on 1234."; fi
+        continue-on-error: true
+
+      - name: Stop Previous Internal Server (Port 3000)
+        run: |
+          echo "Attempting to stop process on port 3000..."
+          PID_TO_KILL=$(sudo lsof -t -i:3000)
+          if [ -n "$PID_TO_KILL" ]; then echo "Killing $PID_TO_KILL"; sudo kill -9 $PID_TO_KILL; else echo "No process on 3000."; fi
+        continue-on-error: true
+        
+      # --- Internal Server ---
+      - name: Install Dependencies for Internal Server
+        run: |
+          if [ -f "package.json" ]; then
+            npm ci
+          else
+            echo "No package.json in InternalServer dir, assuming deps handled by main or global."
+            # If express/dotenv needs to be installed for it specifically if not in package.json:
+            # npm install express dotenv
+          fi
+        working-directory: ${{ env.INTERNAL_SERVER_DEPLOY_PATH }}
+
+      - name: Start Internal Server (Express) in background
+        run: |
+          echo "Starting Internal Server from ${{ env.INTERNAL_SERVER_DEPLOY_PATH }}..."
+          cd "${{ env.INTERNAL_SERVER_DEPLOY_PATH }}"
+          nohup node internal-pc-server-express.js > internal_server.log 2>&1 &
+          echo $! > internal_server.pid
+          echo "Internal Server started. PID: $(cat internal_server.pid). Log: internal_server.log."
+          sleep 5
+      
+      # --- Main Gulp Project ---
+      - name: Install Dependencies for Gulp Project
+        run: npm ci
+        working-directory: ${{ env.MAIN_APP_DEPLOY_PATH }}
+
+      - name: Run Gulp Build
+        run: npx gulp build
+        working-directory: ${{ env.MAIN_APP_DEPLOY_PATH }}
+
+      - name: Start Gulp Server in background
+        run: |
+          echo "Starting Gulp Server from ${{ env.MAIN_APP_DEPLOY_PATH }}..."
+          cd "${{ env.MAIN_APP_DEPLOY_PATH }}"
+          nohup npx gulp > gulp_server.log 2>&1 &
+          echo $! > gulp_server.pid
+          echo "Gulp Server started. PID: $(cat gulp_server.pid). Log: gulp_server.log."
+          sleep 5
+          
+      - name: Verify Servers (Optional Quick Check)
+        run: |
+          echo "--- Gulp Server Log (Last 20 lines) from ${{ env.MAIN_APP_DEPLOY_PATH }}/gulp_server.log ---"
+          tail -n 20 ${{ env.MAIN_APP_DEPLOY_PATH }}/gulp_server.log || echo "gulp_server.log not found or empty."
+          echo "--- Internal Server Log (Last 20 lines) from ${{ env.INTERNAL_SERVER_DEPLOY_PATH }}/internal_server.log ---"
+          tail -n 20 ${{ env.INTERNAL_SERVER_DEPLOY_PATH }}/internal_server.log || echo "internal_server.log not found or empty."
+          
+          echo "Checking Gulp server (port 1234)..."
+          curl -s -o /dev/null -w "%{http_code}" http://localhost:1234
+          echo "" 
+          echo "Checking Internal server (port 3000)..."
+          curl -s -o /dev/null -w "%{http_code}" http://localhost:3000
+          echo ""
+        continue-on-error: true
