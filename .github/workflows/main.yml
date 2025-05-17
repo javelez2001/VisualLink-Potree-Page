@@ -102,12 +102,15 @@ jobs:
       
       # --- Main Gulp Project ---
       - name: Install Dependencies for Gulp Project
-        run: npm ci
-        working-directory: ${{ env.MAIN_APP_DEPLOY_PATH }}
+        run: |
+          cd "${{ env.MAIN_APP_DEPLOY_PATH }}"
+          npm ci
 
       - name: Run Gulp Build
-        run: npx gulp build
-        working-directory: ${{ env.MAIN_APP_DEPLOY_PATH }}
+        run: | 
+          cd "${{ env.MAIN_APP_DEPLOY_PATH }}"
+          npx gulp build
+
 
       - name: Start Gulp Server in background
         run: |
