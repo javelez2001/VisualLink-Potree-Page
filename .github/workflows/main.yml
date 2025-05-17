@@ -76,17 +76,19 @@ jobs:
           if [ -n "$PID_TO_KILL" ]; then echo "Killing $PID_TO_KILL"; sudo kill -9 $PID_TO_KILL; else echo "No process on 3000."; fi
         continue-on-error: true
         
-      # --- Internal Server ---
       - name: Install Dependencies for Internal Server
         run: |
+          echo "Current directory before npm ci for Internal Server: $(pwd)"
+          echo "Listing files in current directory:"
+          ls -la
           if [ -f "package.json" ]; then
+            echo "package.json found. Running npm ci..."
             npm ci
+            echo "npm ci complete for Internal Server."
           else
-            echo "No package.json in InternalServer dir, assuming deps handled by main or global."
-            # If express/dotenv needs to be installed for it specifically if not in package.json:
-            # npm install express dotenv
+            echo "No package.json in ${{ env.INTERNAL_SERVER_DEPLOY_PATH }}. Skipping npm ci for Internal Server."
           fi
-        working-directory: ${{ env.INTERNAL_SERVER_DEPLOY_PATH }}
+        working-directory: ${{ env.INTERNAL_SERVER_DEPLOY_PATH }} 
 
       - name: Start Internal Server (Express) in background
         run: |
