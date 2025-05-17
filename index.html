@@ -31,10 +31,7 @@
 	<script src="./libs/plasio/js/laslaz.js"></script>
 	
 	<!-- INCLUDE ADDITIONAL DEPENDENCIES HERE -->
-		document.title = "";
-		viewer.setEDLEnabled(false);
-		viewer.setBackground("gradient"); // ["skybox", "gradient", "black", "white"];
-		viewer.setDescription(``);
+	<!-- Moved viewer settings into the main script block -->
 	
 	<div class="potree_container" style="position: absolute; width: 100%; height: 100%; left: 0px; top: 0px; ">
 		<div id="potree_render_area" style="background-image: url('./libs/potree/resources/images/background.jpg');"></div>
@@ -52,42 +49,39 @@
 					body: JSON.stringify({x , y})
 				})
 				if (!response.ok) {
-					throw new Error('Error buscando imagen');
+					
+					throw new Error(`Error buscando imagen: ${response.status}`);
 				}
-				        // Convert Base64 to Blob
 				const data = await response.json()
-				console.log(data)
-				const body = JSON.parse(data.body)
+				
+				const body = JSON.parse(data.body);
+				if (!body.image_data) {
+					
+					throw new Error('image_data not found in response body');
+				}
 				const byteCharacters = atob(body.image_data);
 				const byteNumbers = new Array(byteCharacters.length);
 				for (let i = 0; i < byteCharacters.length; i++) {
 					byteNumbers[i] = byteCharacters.charCodeAt(i);
 				}
 				const byteArray = new Uint8Array(byteNumbers);
-				const blob = new Blob([byteArray], { type: "image/jpeg" });
+				const blob = new Blob([byteArray], { type: "image/jpeg" }); // Assuming JPEG, adjust if needed
 
-				// Create a URL for the blob
 				const imageUrl = URL.createObjectURL(blob);
 				return imageUrl;
 			} catch (error) {
-				console.error('Failed', error)
-				return null
+				console.error('Failed to fetch or process image:', error);
+				return null;
 			}
 		}
 
-		const CLIENT_TO_GULP_PROXY_HEADER_NAME_CLIENT = 'X-Potree-Client-Request'; // Must match gulpfile
-		const CLIENT_TO_GULP_PROXY_HEADER_VALUE_CLIENT = 'SUhKJvctHSizWgnv5LqoTsQr'; // Must match gulpfile
+		const CLIENT_TO_GULP_PROXY_HEADER_NAME_CLIENT = 'X-Potree-Client-Request';
+		const CLIENT_TO_GULP_PROXY_HEADER_VALUE_CLIENT = 'SUhKJvctHSizWgnv5LqoTsQr';
 
 		const originalOpen = XMLHttpRequest.prototype.open;
 
-
-
-		// Adding custom headers for every Potree related request
 		XMLHttpRequest.prototype.open = function(method, url, async, user, password) {
-
-		originalOpen.apply(this, arguments);
-		
-
+			originalOpen.apply(this, arguments);
 			if (url.includes('proxied-pointclouds') || url.includes('cloud.js') || url.includes('.bin')) {
 				this.setRequestHeader(CLIENT_TO_GULP_PROXY_HEADER_NAME_CLIENT, CLIENT_TO_GULP_PROXY_HEADER_VALUE_CLIENT);
 			}
@@ -98,22 +92,50 @@
 		viewer.setEDLEnabled(true);
 		viewer.setFOV(60);
 		viewer.setPointBudget(2_000_000);
-		document.title = "";
-		viewer.setEDLEnabled(false);
+		
 		viewer.setBackground("gradient"); // ["skybox", "gradient", "black", "white"];
 		viewer.setDescription(``);
 		viewer.loadSettingsFromURL();
 		
-		viewer.setDescription("");
 		
+
 		viewer.loadGUI(() => {
 			viewer.setLanguage('en');
 			$("#menu_appearance").next().show();
 			$("#menu_tools").next().show();
 			$("#menu_clipping").next().show();
-			viewer.toggleSidebar();
+			
 		});
 
+		let activeAnnotation = null;
+		let annotationRefreshInterval = null;
+		let currentAnnotationCoordinates = null; 
+
+		const updateAnnotationImage = async (annotation, coords) => {
+			if (!annotation || !coords) {
+				console.log("Update skipped: No active annotation or coordinates.");
+				return;
+			}
+			
+			const imageUrl = await fetchImage(coords.x, coords.y);
+			if (imageUrl && annotation && annotation.scene) { 
+				annotation.description = `
+					<img src="${imageUrl}" 
+						 class="annotation-action-icon" 
+						 style="max-width: 300px; max-height: 300px; width: auto; height: auto; display: block; margin: auto;"/>
+				`;
+
+			} else if (annotation && annotation.scene) {
+
+				annotation.description = `<span>Failed to load image. Will retry.</span>`;
+			} else {
+
+				if(annotationRefreshInterval){
+					clearInterval(annotationRefreshInterval);
+					annotationRefreshInterval = null;
+				}
+			}
+		};
 
 
 		Potree.loadPointCloud("/proxied-pointclouds/nube_puntos/cloud.js", "nube_puntos", e => {
@@ -124,7 +146,7 @@
 			material.weightRGB = 0;
 			material.weightElevation = 1;
 			material.weightIntensity = 1;
-			material.Size = 1;
+			material.size = 1; // Corrected: material.size, not material.Size
 			material.pointSizeType = Potree.PointSizeType.ADAPTIVE;
 			material.shape = Potree.PointShape.PARABOLOID;
 
@@ -132,52 +154,67 @@
 				pointcloud.projection = "+proj=utm +zone=18 +datum=WGS84 +units=m +no_defs +type=crs";
 			}
 			viewer.fitToScreen();
-			{
-                    let dynamicAnnotation = null;
-                    viewer.renderer.domElement.addEventListener('mousedown', async (e) => {
-                        let targetImage = null;
-                        let imageTag = `<span>Loading ...</span>`
-						console.log(imageTag)
-                        if (dynamicAnnotation !== null) {
-                            viewer.scene.removeAnnotation(dynamicAnnotation);                       
-                        }
-                        
-                        let mouse = viewer.inputHandler.mouse;
-                        const camera = viewer.scene.getActiveCamera();
-						console.log('hit properties',mouse,'camera',camera,'viewer',viewer,'sceneSG',viewer.scene.pointclouds)
-                        let hit = Potree.Utils.getMousePointCloudIntersection(mouse, camera, viewer, viewer.scene.pointclouds);
-                        console.log('hit',hit);
-                        if (hit !== null) {
-                            dynamicAnnotation = viewer.scene.addAnnotation([
-                                hit.location.x,
-                                hit.location.y,
-                                hit.location.z
-                            ], {
-                                "title": `Latest Image`,
-                                "description": `
-                                ${imageTag}
-                                `
-                            });
-                        }
-                        targetImage = await fetchImage(hit.location.x, hit.location.y)
-						console.log(hit.location)
-                        if (targetImage) {
-                            dynamicAnnotation.description = `
-                            <img src="${targetImage}" 
-                                class="annotation-action-icon" 
-                                style="max-width: 300px; max-height: 300px; width: auto; height: auto; display: block; margin: auto;"/>
-                        `;
-                        }
-                    })
+			
+			viewer.renderer.domElement.addEventListener('mousedown', async (event) => {
+				
+				if (annotationRefreshInterval) {
+					clearInterval(annotationRefreshInterval);
+					annotationRefreshInterval = null;
+					
+				}
+				if (activeAnnotation) {
+					
+					activeAnnotation.removeEventListener('close', handleAnnotationClose);
+					viewer.scene.removeAnnotation(activeAnnotation);
+					activeAnnotation = null;
+					
+				}
+				currentAnnotationCoordinates = null;
 
+				let mouse = viewer.inputHandler.mouse;
+				const camera = viewer.scene.getActiveCamera();
+				let hit = Potree.Utils.getMousePointCloudIntersection(mouse, camera, viewer, viewer.scene.pointclouds);
+				
+				if (hit) {
+					currentAnnotationCoordinates = { x: hit.location.x, y: hit.location.y };
+					activeAnnotation = viewer.scene.addAnnotation(
+						[hit.location.x, hit.location.y, hit.location.z],
+						{
+							"title": `Current Image`,
+							"description": `<span>Loading initial image...</span>`
+						}
+					);
+					activeAnnotation.addEventListener('close', handleAnnotationClose);
+					await updateAnnotationImage(activeAnnotation, currentAnnotationCoordinates);
 
-
-                }
+					// Fetches lambda function every 10 seconds
+					if (activeAnnotation && activeAnnotation.scene) {
+						annotationRefreshInterval = setInterval(() => {
+							updateAnnotationImage(activeAnnotation, currentAnnotationCoordinates);
+						}, 10000); 
+						
+					}
+				}
+			});
 		});
+
 		
+		const handleAnnotationClose = () => {
+			
+			if (annotationRefreshInterval) {
+				clearInterval(annotationRefreshInterval);
+				annotationRefreshInterval = null;
+				
+			}
+			
+			if (activeAnnotation && !activeAnnotation.scene) { 
+				activeAnnotation = null;
+				currentAnnotationCoordinates = null;
+			}
+		};
 		
 	</script>
 	
-	
   </body>
 </html>
+
