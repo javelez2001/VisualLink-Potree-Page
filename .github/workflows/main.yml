@@ -78,6 +78,7 @@ jobs:
         
       - name: Install Dependencies for Internal Server
         run: |
+          cd "${{ env.INTERNAL_SERVER_DEPLOY_PATH }}"
           echo "Current directory before npm ci for Internal Server: $(pwd)"
           echo "Listing files in current directory:"
           ls -la
@@ -88,7 +89,7 @@ jobs:
           else
             echo "No package.json in ${{ env.INTERNAL_SERVER_DEPLOY_PATH }}. Skipping npm ci for Internal Server."
           fi
-        working-directory: ${{ env.INTERNAL_SERVER_DEPLOY_PATH }} 
+ 
 
       - name: Start Internal Server (Express) in background
         run: |
