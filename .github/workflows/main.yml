@@ -95,7 +95,7 @@ jobs:
         run: |
           echo "Starting Internal Server from ${{ env.INTERNAL_SERVER_DEPLOY_PATH }}..."
           cd "${{ env.INTERNAL_SERVER_DEPLOY_PATH }}"
-          nohup node internal-pc-server-express.js > internal_server.log 2>&1 &
+          nohup node InternalServer.js > internal_server.log 2>&1 &
           echo $! > internal_server.pid
           echo "Internal Server started. PID: $(cat internal_server.pid). Log: internal_server.log."
           sleep 5
