@@ -109,6 +109,7 @@ jobs:
       - name: Run Gulp Build
         run: | 
           cd "${{ env.MAIN_APP_DEPLOY_PATH }}"
+          npm install del
           npx gulp build
 
 
