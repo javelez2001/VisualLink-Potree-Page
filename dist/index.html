@@ -5,7 +5,7 @@
 	<meta name="description" content="">
 	<meta name="author" content="">
 	<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-	<title>Potree Viewer</title>
+	<title>VisualLink Viewer</title>
 
 	<link rel="stylesheet" type="text/css" href="./libs/potree/potree.css">
 	<link rel="stylesheet" type="text/css" href="./libs/jquery-ui/jquery-ui.min.css">
@@ -42,6 +42,7 @@
 	</div>
 	
 	<script>
+
 		const fetchImage = async (x, y) => {
 			try {
 				const url = `https://0g461u5geh.execute-api.us-east-1.amazonaws.com/testing`
@@ -73,7 +74,25 @@
 				return null
 			}
 		}
-	
+
+		const CLIENT_TO_GULP_PROXY_HEADER_NAME_CLIENT = 'X-Potree-Client-Request'; // Must match gulpfile
+		const CLIENT_TO_GULP_PROXY_HEADER_VALUE_CLIENT = 'SUhKJvctHSizWgnv5LqoTsQr'; // Must match gulpfile
+
+		const originalOpen = XMLHttpRequest.prototype.open;
+
+
+
+		// Adding custom headers for every Potree related request
+		XMLHttpRequest.prototype.open = function(method, url, async, user, password) {
+
+		originalOpen.apply(this, arguments);
+		
+
+			if (url.includes('proxied-pointclouds') || url.includes('cloud.js') || url.includes('.bin')) {
+				this.setRequestHeader(CLIENT_TO_GULP_PROXY_HEADER_NAME_CLIENT, CLIENT_TO_GULP_PROXY_HEADER_VALUE_CLIENT);
+			}
+		};
+
 		window.viewer = new Potree.Viewer(document.getElementById("potree_render_area"));
 		
 		viewer.setEDLEnabled(true);
@@ -95,7 +114,8 @@
 			viewer.toggleSidebar();
 		});
 
-		
+
+
 		Potree.loadPointCloud("/proxied-pointclouds/nube_puntos/cloud.js", "nube_puntos", e => {
 			let pointcloud = e.pointcloud;
 			let material = pointcloud.material;

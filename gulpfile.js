@@ -8,6 +8,7 @@ const connect = require('gulp-connect');
 const { watch } = gulp;
 const { deleteAsync: del } = require('del');
 const axios = require('axios');
+require('dotenv').config();
 
 const OUTPUT_DIR = 'dist';
 const HTML_SOURCE_FILE = 'index.html'; 
@@ -15,8 +16,14 @@ const LIBS_SOURCE_DIR = 'libs';
 const INTERNAL_POINTCLOUD_SERVER_BASE_URL = 'http://localhost:3000';
 
 
-// Workers are taken from potree GitHub Repository https://github.com/potree/potree,
-// as well as the build/, src/ and libs/ folders
+const GULP_PROXY_TO_INTERNAL_HEADER_NAME = 'X-Internal-Proxy-Auth';
+const GULP_PROXY_TO_INTERNAL_HEADER_VALUE = process.env.SERVER_SIDE_HEADER; 
+
+
+const CLIENT_TO_GULP_PROXY_HEADER_NAME = 'X-Potree-Client-Request';
+const CLIENT_TO_GULP_PROXY_HEADER_VALUE = 'SUhKJvctHSizWgnv5LqoTsQr'; // Client Side, no reason to hide
+
+
 
 const potreeSources = {
     css: "src/viewer/potree.css", 
@@ -167,7 +174,7 @@ gulp.task('build',
 );
 
 // Webserver in port 1234, and middleware for pointclouds in port 3000
-gulp.task('webserver', function () {
+gulp.task('webserver', function (done) {
     const PROXY_PATH_PREFIX = '/proxied-pointclouds';
     connect.server({
         name: 'VisualLink',
@@ -178,22 +185,41 @@ gulp.task('webserver', function () {
         index: HTML_SOURCE_FILE, 
         middleware: function (connectInstance, opt) {
             return [
+                function clientAuthMiddleware(req, res, next) {
+                    if (req.url.startsWith(PROXY_PATH_PREFIX)) {
+                        const clientHeaderValue = req.headers[CLIENT_TO_GULP_PROXY_HEADER_NAME.toLowerCase()]; 
+
+                        if (clientHeaderValue && clientHeaderValue === CLIENT_TO_GULP_PROXY_HEADER_VALUE) {
+                            console.log(`[Gulp Server] Valid client header for ${req.url}. Proceeding to proxy.`);
+                            return next(); 
+                        } else {
+                            console.warn(`[Gulp Server] Forbidden: Missing or invalid client header for ${req.url}. Received: '${clientHeaderValue}'`);
+                            res.statusCode = 403; // Forbidden
+                            return res.end('Forbidden: Direct access to this resource is not allowed.');
+                        }
+                    }
+
+                    return next();
+                },
+
+
                 async function pointCloudProxyMiddleware(req, res, next) {
                     if (req.url.startsWith(PROXY_PATH_PREFIX)) {
                         const resourcePath = req.url.substring(PROXY_PATH_PREFIX.length);
                         const targetUrl = `${INTERNAL_POINTCLOUD_SERVER_BASE_URL}${resourcePath}`;
 
-                        console.log(`[Proxy] Client requested: ${req.url}`);
-                        console.log(`[Proxy] Fetching from internal: ${targetUrl}`);
+                        console.log(`[Gulp Proxy] Authenticated client request: ${req.url}`);
+                        console.log(`[Gulp Proxy] Fetching from internal: ${targetUrl}`);
 
                         try {
                             const responseFromInternal = await axios({
-                                method: 'GET', 
+                                method: 'GET',
                                 url: targetUrl,
-                                responseType: 'stream', 
-
+                                responseType: 'stream',
+                                headers: { 
+                                    [GULP_PROXY_TO_INTERNAL_HEADER_NAME]: GULP_PROXY_TO_INTERNAL_HEADER_VALUE
+                                }
                             });
-
 
                             if (responseFromInternal.headers['content-type']) {
                                 res.setHeader('Content-Type', responseFromInternal.headers['content-type']);
@@ -206,9 +232,9 @@ gulp.task('webserver', function () {
                             responseFromInternal.data.pipe(res);
 
                         } catch (error) {
-                            console.error(`[Proxy] Error fetching from ${targetUrl}:`, error.message);
+                            console.error(`[Gulp Proxy] Error fetching from ${targetUrl}:`, error.message);
                             if (error.response) {
-                                console.error(`[Proxy] Internal server status: ${error.response.status}`);
+                                console.error(`[Gulp Proxy] Internal server status: ${error.response.status}`);
                                 res.writeHead(error.response.status);
                                 if (error.response.data && typeof error.response.data.pipe === 'function') {
                                     error.response.data.pipe(res);
@@ -218,17 +244,19 @@ gulp.task('webserver', function () {
                                     res.end(error.message);
                                 }
                             } else {
-                                res.statusCode = 502; 
+                                res.statusCode = 502; // Bad Gateway
                                 res.end('Error: Could not reach internal point cloud server.');
                             }
                         }
                     } else {
+                        
                         return next();
                     }
                 }
-            ]
+            ];
         }
     });
+    if (done) done(); 
 });
 
 // Watch for changes and rebuild
@@ -257,5 +285,6 @@ gulp.task('watch-changes', function () {
 
 });
 
+// Default task
 gulp.task('default', gulp.series('build', gulp.parallel('webserver', 'watch-changes')));
 gulp.task('serve', gulp.series('build', 'webserver'));
