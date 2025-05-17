@@ -41,7 +41,7 @@ jobs:
 
       - name: Prepare Internal Server Deployment Directory
         run: |
-          cp -R ${{ github.workspace }}/temp_checkout/InternalServer/* "${{ env.INTERNAL_SERVER_DEPLOY_PATH }}/"
+          cp -R ${{ github.workspace }}/temp_checkout/internalServer/* "${{ env.INTERNAL_SERVER_DEPLOY_PATH }}/"
           
       - name: Create .env file in Main App Directory
         run: |
