@@ -98,7 +98,7 @@ jobs:
           nohup node internalServer.js > internal_server.log 2>&1 &
           echo $! > internal_server.pid
           echo "Internal Server started. PID: $(cat internal_server.pid). Log: internal_server.log."
-          sleep 5
+          sleep 10
       
       # --- Main Gulp Project ---
       - name: Install Dependencies for Gulp Project
