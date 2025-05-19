@@ -66,14 +66,14 @@ jobs:
         run: |
           echo "Attempting to stop process on port 1234..."
           PID_TO_KILL=$(sudo lsof -t -i:1234)
-          if [ -n "$PID_TO_KILL" ]; then echo "Killing $PID_TO_KILL"; sudo kill -9 $PID_TO_KILL; screen -X -S main quit; else echo "No process on 1234."; fi
+          if [ -n "$PID_TO_KILL" ]; then echo "Killing $PID_TO_KILL"; sudo kill -9 $PID_TO_KILL; else echo "No process on 1234."; fi
         continue-on-error: true
 
       - name: Stop Previous Internal Server (Port 3000)
         run: |
           echo "Attempting to stop process on port 3000..."
           PID_TO_KILL=$(sudo lsof -t -i:3000)
-          if [ -n "$PID_TO_KILL" ]; then echo "Killing $PID_TO_KILL"; sudo kill -9 $PID_TO_KILL; screen -X -S internal quit; else echo "No process on 3000."; fi
+          if [ -n "$PID_TO_KILL" ]; then echo "Killing $PID_TO_KILL"; sudo kill -9 $PID_TO_KILL; else echo "No process on 3000."; fi
         continue-on-error: true
         
       - name: Install Dependencies for Internal Server
@@ -95,9 +95,10 @@ jobs:
         run: |
           echo "Starting Internal Server from ${{ env.INTERNAL_SERVER_DEPLOY_PATH }}..."
           cd "${{ env.INTERNAL_SERVER_DEPLOY_PATH }}"
-          screen -dmS internal node internalServer.js
-          echo "Started Internal Server Screen at internal"
-          sleep 3
+          setsid nohup node internalServer.js > internal_server.log 2>&1 &
+          echo $! > internal_server.pid
+          echo "Internal Server started. PID: $(cat internal_server.pid). Log: internal_server.log."
+          sleep 5
       
       # --- Main Gulp Project ---
       - name: Install Dependencies for Gulp Project
@@ -116,8 +117,9 @@ jobs:
         run: |
           echo "Starting Gulp Server from ${{ env.MAIN_APP_DEPLOY_PATH }}..."
           cd "${{ env.MAIN_APP_DEPLOY_PATH }}"
-          screen -dmS main npx gulp 
-          echo "Started Gulp Server Screen at main"
+          setsid nohup npx gulp > gulp_server.log 2>&1 &
+          echo $! > gulp_server.pid
+          echo "Gulp Server started. PID: $(cat gulp_server.pid). Log: gulp_server.log."
           sleep 5
           
       - name: Wait for Gulp Server to be Ready (Port 1234)
