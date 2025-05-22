@@ -40,6 +40,44 @@
 	
 	<script>
 
+		const addPointPosition = async () => {
+			const position = await fetchPostion();
+			let geometry = new THREE.BufferGeometry();
+			let positions = new Float32Array([position.x, position.y, position.z]); // your coordinates
+			geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+
+			let material = new THREE.PointsMaterial({color: 0xff0000, size: 5});
+			let points = new THREE.Points(geometry, material);
+			viewer.scene.scene.add(points);
+		}
+
+		const fetchPostion = async () => {
+			try {
+				const url = `https://0g461u5geh.execute-api.us-east-1.amazonaws.com/testing/fetchCurrentPosition`
+				const response = await fetch(url, {
+					method: 'GET',
+					headers: { 'Content-Type': 'application/json' },
+				})
+				if (!response.ok) {
+					
+					throw new Error(`Error buscando imagen: ${response.status}`);
+				}
+				const data = await response.json()
+				if (response.status == 200) {
+					const body = JSON.parse(data.body);
+					if (data.body) {
+						console.log(body)
+						return {x: body.easting, y: body.northing, z: 35}
+					}
+
+				} else if (response.status == 404) {
+					console.warn('No current position')
+				}
+
+			} catch (error) {
+				console.log('No data found', error)
+			}
+		}
 		const fetchImage = async (x, y) => {
 			try {
 				const url = `https://0g461u5geh.execute-api.us-east-1.amazonaws.com/testing`
@@ -59,6 +97,7 @@
 					
 					throw new Error('image_data not found in response body');
 				}
+				console.log(body.image_data)
 				const byteCharacters = atob(body.image_data);
 				const byteNumbers = new Array(byteCharacters.length);
 				for (let i = 0; i < byteCharacters.length; i++) {
@@ -176,6 +215,7 @@
 				let hit = Potree.Utils.getMousePointCloudIntersection(mouse, camera, viewer, viewer.scene.pointclouds);
 				
 				if (hit) {
+					console.log(hit.location.x,hit.location.y,hit.location.z)
 					currentAnnotationCoordinates = { x: hit.location.x, y: hit.location.y };
 					activeAnnotation = viewer.scene.addAnnotation(
 						[hit.location.x, hit.location.y, hit.location.z],
@@ -198,6 +238,10 @@
 			});
 		});
 
+		addPointPosition()
+		setInterval(() => {
+			addPointPosition()
+		},10000)
 		
 		const handleAnnotationClose = () => {
 			
